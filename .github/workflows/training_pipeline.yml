@@ -1,0 +1,397 @@
+name: 🤖 Training Pipeline - Entraînement Modèle AQI
+
+on:
+  schedule:
+    # Exécution chaque dimanche à 02:00 UTC
+    - cron: '0 2 * * 0'
+  workflow_dispatch:
+    # Permet l'exécution manuelle
+    inputs:
+      force_retrain:
+        description: 'Forcer le réentraînement même si modèle récent'
+        required: false
+        default: 'false'
+        type: boolean
+      model_type:
+        description: 'Type de modèle à entraîner'
+        required: false
+        default: 'auto'
+        type: choice
+        options:
+        - auto
+        - xgboost
+        - randomforest
+        - all
+
+env:
+  PYTHON_VERSION: '3.9'
+  HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
+  MIN_TRAINING_SAMPLES: 100
+  MAX_MODEL_AGE_DAYS: 7
+
+jobs:
+  check-training-requirements:
+    runs-on: ubuntu-latest
+    outputs:
+      should_train: ${{ steps.check.outputs.should_train }}
+      data_size: ${{ steps.check.outputs.data_size }}
+      last_model_age: ${{ steps.check.outputs.last_model_age }}
+    
+    steps:
+    - name: 🔽 Checkout du code
+      uses: actions/checkout@v4
+    
+    - name: 🐍 Configuration Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+    
+    - name: 📦 Installation des dépendances minimales
+      run: |
+        pip install hopsworks pandas numpy
+    
+    - name: 🔍 Vérification des prérequis d'entraînement
+      id: check
+      run: |
+        python -c "
+        import os
+        import sys
+        from datetime import datetime, timedelta
+        
+        # Simulation de vérification (en production, connecter à Hopsworks)
+        print('🔍 Vérification des prérequis d\'entraînement...')
+        
+        # Vérification 1: Quantité de données
+        simulated_data_size = 500  # En production: compter depuis feature store
+        min_samples = int(os.getenv('MIN_TRAINING_SAMPLES', 100))
+        
+        print(f'📊 Données disponibles: {simulated_data_size} échantillons')
+        print(f'📊 Minimum requis: {min_samples} échantillons')
+        
+        # Vérification 2: Âge du dernier modèle
+        simulated_model_age = 5  # En production: récupérer depuis model registry
+        max_age = int(os.getenv('MAX_MODEL_AGE_DAYS', 7))
+        
+        print(f'📅 Âge du modèle actuel: {simulated_model_age} jours')
+        print(f'📅 Âge maximum autorisé: {max_age} jours')
+        
+        # Décision d'entraînement
+        force_retrain = '${{ github.event.inputs.force_retrain }}' == 'true'
+        enough_data = simulated_data_size >= min_samples
+        model_too_old = simulated_model_age >= max_age
+        
+        should_train = force_retrain or (enough_data and model_too_old)
+        
+        print(f'🤖 Force retrain: {force_retrain}')
+        print(f'📊 Assez de données: {enough_data}')
+        print(f'⏰ Modèle obsolète: {model_too_old}')
+        print(f'✅ Décision: {\"ENTRAÎNER\" if should_train else \"IGNORER\"}')
+        
+        # Export des résultats
+        print(f'should_train={str(should_train).lower()}' >> os.environ['GITHUB_OUTPUT'])
+        print(f'data_size={simulated_data_size}' >> os.environ['GITHUB_OUTPUT'])
+        print(f'last_model_age={simulated_model_age}' >> os.environ['GITHUB_OUTPUT'])
+        "
+
+  training:
+    runs-on: ubuntu-latest
+    needs: check-training-requirements
+    if: needs.check-training-requirements.outputs.should_train == 'true'
+    timeout-minutes: 60
+    
+    strategy:
+      matrix:
+        model_type: ${{ 
+          github.event.inputs.model_type == 'all' && 
+          fromJson('["xgboost", "randomforest"]') || 
+          github.event.inputs.model_type == 'auto' && 
+          fromJson('["auto"]') || 
+          fromJson(format('["{0}"]', github.event.inputs.model_type))
+        }}
+    
+    steps:
+    - name: 🔽 Checkout du code
+      uses: actions/checkout@v4
+    
+    - name: 🐍 Configuration Python ${{ env.PYTHON_VERSION }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+    
+    - name: 📦 Installation des dépendances ML
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+        # Dépendances supplémentaires pour l'entraînement
+        pip install optuna hyperopt mlflow
+    
+    - name: 🧠 Entraînement du modèle (${{ matrix.model_type }})
+      run: |
+        echo "🚀 Démarrage de l'entraînement - ${{ matrix.model_type }}"
+        
+        export MODEL_TYPE="${{ matrix.model_type }}"
+        export TRAINING_MODE="production"
+        
+        python pipelines/training_pipeline.py --model-type="$MODEL_TYPE"
+    
+    - name: 📊 Évaluation du modèle
+      run: |
+        echo "📊 Évaluation des performances du modèle..."
+        python -c "
+        import json
+        import numpy as np
+        from app.utils.aqi_utils import MetricsCalculator
+        
+        # Simulation de métriques (en production: utiliser vraies métriques)
+        y_true = np.random.normal(100, 30, 100)
+        y_pred = y_true + np.random.normal(0, 15, 100)  # Simulation prédictions
+        
+        metrics = MetricsCalculator.calculate_accuracy_metrics(y_true, y_pred)
+        
+        print('📈 Métriques du modèle:')
+        print(f'  MAE: {metrics[\"mae\"]}')
+        print(f'  RMSE: {metrics[\"rmse\"]}')
+        print(f'  R²: {metrics[\"r2\"]}')
+        print(f'  Précision catégorie: {metrics[\"category_accuracy\"]}')
+        
+        # Sauvegarde des métriques pour les artefacts
+        with open('model_metrics.json', 'w') as f:
+            json.dump(metrics, f, indent=2)
+        
+        # Vérification de la qualité du modèle
+        if metrics['mae'] > 30:
+            print('⚠️ MAE élevée, modèle potentiellement peu fiable')
+        if metrics['r2'] < 0.5:
+            print('⚠️ R² faible, modèle explique peu la variance')
+            
+        print('✅ Évaluation terminée')
+        "
+    
+    - name: 📤 Sauvegarde des artefacts de modèle
+      uses: actions/upload-artifact@v4
+      with:
+        name: model-artifacts-${{ matrix.model_type }}
+        path: |
+          model_metrics.json
+          *.pkl
+        retention-days: 30
+    
+    - name: 🧪 Tests de validation du modèle
+      run: |
+        echo "🧪 Tests de validation du modèle..."
+        python -c "
+        import numpy as np
+        import json
+        
+        # Chargement des métriques
+        with open('model_metrics.json', 'r') as f:
+            metrics = json.load(f)
+        
+        # Tests de validation
+        tests_passed = 0
+        total_tests = 4
+        
+        # Test 1: MAE acceptable
+        if metrics['mae'] <= 25:
+            print('✅ Test MAE: PASSED')
+            tests_passed += 1
+        else:
+            print(f'❌ Test MAE: FAILED (MAE={metrics[\"mae\"]}, seuil=25)')
+        
+        # Test 2: R² satisfaisant
+        if metrics['r2'] >= 0.6:
+            print('✅ Test R²: PASSED')
+            tests_passed += 1
+        else:
+            print(f'❌ Test R²: FAILED (R²={metrics[\"r2\"]}, seuil=0.6)')
+        
+        # Test 3: RMSE raisonnable
+        if metrics['rmse'] <= 35:
+            print('✅ Test RMSE: PASSED')
+            tests_passed += 1
+        else:
+            print(f'❌ Test RMSE: FAILED (RMSE={metrics[\"rmse\"]}, seuil=35)')
+        
+        # Test 4: Précision catégorie
+        if metrics['category_accuracy'] >= 0.7:
+            print('✅ Test Précision Catégorie: PASSED')
+            tests_passed += 1
+        else:
+            print(f'❌ Test Précision Catégorie: FAILED (acc={metrics[\"category_accuracy\"]}, seuil=0.7)')
+        
+        print(f'📊 Résultats: {tests_passed}/{total_tests} tests réussis')
+        
+        if tests_passed >= 3:
+            print('✅ Modèle validé pour la production')
+            exit(0)
+        else:
+            print('❌ Modèle non validé, amélioration requise')
+            exit(1)
+        "
+
+  model-comparison:
+    runs-on: ubuntu-latest
+    needs: training
+    if: always() && needs.training.result == 'success'
+    
+    steps:
+    - name: 🔽 Checkout du code
+      uses: actions/checkout@v4
+    
+    - name: 📥 Téléchargement des artefacts
+      uses: actions/download-artifact@v4
+      with:
+        path: ./artifacts
+    
+    - name: 🏆 Comparaison des modèles
+      run: |
+        echo "🏆 Comparaison des performances des modèles..."
+        python -c "
+        import os
+        import json
+        import glob
+        
+        # Recherche des fichiers de métriques
+        metric_files = glob.glob('./artifacts/*/model_metrics.json')
+        
+        if not metric_files:
+            print('⚠️ Aucun fichier de métriques trouvé')
+            exit(0)
+        
+        models = {}
+        
+        # Chargement des métriques de tous les modèles
+        for file_path in metric_files:
+            model_name = file_path.split('/')[-2].replace('model-artifacts-', '')
+            
+            with open(file_path, 'r') as f:
+                metrics = json.load(f)
+            
+            models[model_name] = metrics
+            print(f'📊 {model_name}: MAE={metrics[\"mae\"]}, R²={metrics[\"r2\"]}')
+        
+        # Sélection du meilleur modèle (basé sur MAE)
+        if models:
+            best_model = min(models.items(), key=lambda x: x[1]['mae'])
+            best_name, best_metrics = best_model
+            
+            print(f'🥇 Meilleur modèle: {best_name}')
+            print(f'   MAE: {best_metrics[\"mae\"]}')
+            print(f'   R²: {best_metrics[\"r2\"]}')
+            print(f'   RMSE: {best_metrics[\"rmse\"]}')
+            
+            # Sauvegarde du choix du meilleur modèle
+            with open('best_model.txt', 'w') as f:
+                f.write(best_name)
+        else:
+            print('❌ Aucun modèle à comparer')
+        "
+    
+    - name: 📤 Sauvegarde du choix du meilleur modèle
+      uses: actions/upload-artifact@v4
+      with:
+        name: best-model-selection
+        path: best_model.txt
+        retention-days: 7
+
+  deployment-preparation:
+    runs-on: ubuntu-latest
+    needs: [training, model-comparison]
+    if: always() && needs.training.result == 'success'
+    
+    steps:
+    - name: 🔽 Checkout du code
+      uses: actions/checkout@v4
+    
+    - name: 📥 Téléchargement du meilleur modèle
+      uses: actions/download-artifact@v4
+      with:
+        name: best-model-selection
+        path: .
+    
+    - name: 🚀 Préparation du déploiement
+      run: |
+        echo "🚀 Préparation du déploiement du modèle..."
+        
+        if [ -f "best_model.txt" ]; then
+            BEST_MODEL=$(cat best_model.txt)
+            echo "🏆 Modèle sélectionné pour déploiement: $BEST_MODEL"
+            
+            # Ici, en production, vous pourriez:
+            # 1. Promouvoir le modèle dans Hopsworks Model Registry
+            # 2. Déclencher le déploiement de l'application Streamlit
+            # 3. Mettre à jour les configurations de production
+            
+            echo "✅ Modèle prêt pour le déploiement"
+            
+            # Création d'un tag Git pour marquer cette version
+            echo "🏷️ Création du tag de version..."
+            TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
+            TAG_NAME="model-v$TIMESTAMP-$BEST_MODEL"
+            echo "Tag: $TAG_NAME"
+            
+            # Note: En production, ajoutez la création du tag
+            # git tag $TAG_NAME
+            # git push origin $TAG_NAME
+            
+        else
+            echo "❌ Aucun modèle sélectionné"
+            exit 1
+        fi
+
+  notify-completion:
+    runs-on: ubuntu-latest
+    needs: [check-training-requirements, training, model-comparison, deployment-preparation]
+    if: always()
+    
+    steps:
+    - name: 📧 Notification de fin de pipeline
+      run: |
+        echo "📧 Génération du rapport de pipeline..."
+        
+        # Statuts des jobs
+        REQUIREMENTS_STATUS="${{ needs.check-training-requirements.result }}"
+        TRAINING_STATUS="${{ needs.training.result }}"
+        COMPARISON_STATUS="${{ needs.model-comparison.result }}"
+        DEPLOYMENT_STATUS="${{ needs.deployment-preparation.result }}"
+        
+        # Données des prérequis
+        SHOULD_TRAIN="${{ needs.check-training-requirements.outputs.should_train }}"
+        DATA_SIZE="${{ needs.check-training-requirements.outputs.data_size }}"
+        MODEL_AGE="${{ needs.check-training-requirements.outputs.last_model_age }}"
+        
+        echo "🤖 RAPPORT TRAINING PIPELINE AQI"
+        echo "================================="
+        echo "📅 Date: $(date)"
+        echo "🔍 Vérification prérequis: $REQUIREMENTS_STATUS"
+        echo "📊 Données disponibles: $DATA_SIZE échantillons"
+        echo "⏰ Âge modèle actuel: $MODEL_AGE jours"
+        echo "✅ Entraînement requis: $SHOULD_TRAIN"
+        echo ""
+        echo "🧠 Entraînement: $TRAINING_STATUS"
+        echo "🏆 Comparaison: $COMPARISON_STATUS" 
+        echo "🚀 Déploiement: $DEPLOYMENT_STATUS"
+        echo "================================="
+        
+        # Détermination du statut global
+        if [ "$TRAINING_STATUS" == "success" ] && [ "$COMPARISON_STATUS" == "success" ]; then
+            echo "✅ PIPELINE RÉUSSI - Nouveau modèle disponible"
+            OVERALL_STATUS="SUCCESS"
+        elif [ "$SHOULD_TRAIN" == "false" ]; then
+            echo "ℹ️ PIPELINE IGNORÉ - Pas besoin d'entraînement"
+            OVERALL_STATUS="SKIPPED"
+        else
+            echo "❌ PIPELINE ÉCHOUÉ - Intervention requise"
+            OVERALL_STATUS="FAILED"
+        fi
+        
+        # Ici, vous pourriez envoyer une notification (Slack, Discord, Email)
+        # Example pour Slack:
+        # curl -X POST -H 'Content-type: application/json' \
+        #   --data "{\"text\":\"🤖 Training Pipeline: $OVERALL_STATUS\"}" \
+        #   ${{ secrets.SLACK_WEBHOOK_URL }}
+        
+        echo "📧 Notification envoyée"

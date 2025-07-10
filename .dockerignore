@@ -1,0 +1,42 @@
+# Fichiers à ignorer lors du build Docker
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+.env
+.venv/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+README.md
+docs/
+
+# Tests
+tests/
+pytest.ini
+
+# Logs
+*.log
+logs/
+
+# Cache Streamlit
+.streamlit/secrets.toml
