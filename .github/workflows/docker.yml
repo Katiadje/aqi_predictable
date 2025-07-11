@@ -26,15 +26,15 @@ jobs:
         
     - name: 🏗️ Build Docker image
       run: |
-        docker build -t ghcr.io/${{ github.repository }}:latest .
+        docker build -t ghcr.io/katiadje/aqi_predictable:latest .
         
     - name: 📦 Push Docker image
       run: |
-        docker push ghcr.io/${{ github.repository }}:latest
+        docker push ghcr.io/katiadje/aqi_predictable:latest
         
     - name: ✅ Docker summary
       run: |
         echo "## 🐳 Docker Build Results" >> $GITHUB_STEP_SUMMARY
         echo "- Status: ✅ Build successful" >> $GITHUB_STEP_SUMMARY
-        echo "- Image: ghcr.io/${{ github.repository }}:latest" >> $GITHUB_STEP_SUMMARY
+        echo "- Image: ghcr.io/katiadje/aqi_predictable:latest" >> $GITHUB_STEP_SUMMARY
         echo "- Registry: GitHub Container Registry" >> $GITHUB_STEP_SUMMARY
