@@ -1,0 +1,63 @@
+name: 🚀 Deploy to Production
+
+on:
+  push:
+    branches: [ main ]
+  release:
+    types: [ published ]
+
+jobs:
+  deploy-railway:
+    name: 🚄 Deploy to Railway
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: 🚄 Deploy to Railway
+      uses: bervProject/railway-deploy@v1.0.0
+      with:
+        railway_token: ${{ secrets.RAILWAY_TOKEN }}
+        service: aqi-predictor
+        
+  deploy-heroku:
+    name: 🟣 Deploy to Heroku
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: 🟣 Deploy to Heroku
+      uses: akhileshns/heroku-deploy@v3.12.12
+      with:
+        heroku_api_key: ${{ secrets.HEROKU_API_KEY }}
+        heroku_app_name: "aqi-predictor-app"
+        heroku_email: ${{ secrets.HEROKU_EMAIL }}
+        
+  notify:
+    name: 📱 Notifications
+    needs: [deploy-railway, deploy-heroku]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - name: 💬 Slack notification
+      if: success()
+      run: |
+        curl -X POST -H 'Content-type: application/json' \
+        --data '{"text":"🚀 AQI Predictor deployed successfully!"}' \
+        ${{ secrets.SLACK_WEBHOOK_URL }}
+        
+    - name: 📧 Email notification
+      if: failure()
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: smtp.gmail.com
+        server_port: 465
+        username: ${{ secrets.EMAIL_USERNAME }}
+        password: ${{ secrets.EMAIL_PASSWORD }}
+        subject: "❌ AQI Predictor Deployment Failed"
+        body: "Deployment failed. Check the logs for details."
+        to: ${{ secrets.EMAIL_TO }}

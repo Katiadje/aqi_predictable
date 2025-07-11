@@ -1,0 +1,106 @@
+name: 🤖 ML Pipeline
+
+on:
+  schedule:
+    - cron: '0 6 * * *'  # Tous les jours à 6h
+  workflow_dispatch:      # Manuel trigger
+    inputs:
+      city:
+        description: 'City to process'
+        required: false
+        default: 'paris'
+      days:
+        description: 'Days of historical data'
+        required: false
+        default: '7'
+
+jobs:
+  feature-pipeline:
+    name: 📊 Feature Collection
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: 📦 Install dependencies
+      run: |
+        pip install -r requirements.txt
+        
+    - name: 🌍 Collect features
+      env:
+        AQICN_API_KEY: ${{ secrets.AQICN_API_KEY }}
+      run: |
+        python pipelines/feature_pipeline.py --city ${{ github.event.inputs.city || 'paris' }}
+        
+    - name: 📁 Upload features
+      uses: actions/upload-artifact@v3
+      with:
+        name: features-data
+        path: features_*.csv
+        retention-days: 7
+
+  training:
+    name: 🎓 Model Training
+    needs: feature-pipeline
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event.inputs.days
+    
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: 📦 Install dependencies
+      run: pip install -r requirements.txt
+      
+    - name: 📥 Download features
+      uses: actions/download-artifact@v3
+      with:
+        name: features-data
+        
+    - name: 🤖 Train models
+      run: |
+        python pipelines/training_pipeline.py --model-type auto
+        
+    - name: 📊 Generate report
+      run: |
+        echo "## 🤖 Training Report" >> $GITHUB_STEP_SUMMARY
+        echo "Date: $(date)" >> $GITHUB_STEP_SUMMARY
+        echo "Status: ✅ Completed" >> $GITHUB_STEP_SUMMARY
+        
+    - name: 📁 Save model
+      uses: actions/upload-artifact@v3
+      with:
+        name: trained-model
+        path: |
+          aqi_model/
+          training_report.md
+
+  inference:
+    name: 🔮 Generate Predictions
+    needs: [feature-pipeline, training]
+    runs-on: ubuntu-latest
+    if: always() && needs.feature-pipeline.result == 'success'
+    
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: 📦 Install dependencies
+      run: pip install -r requirements.txt
+      
+    - name: 🔮 Generate predictions
+      run: |
+        python pipelines/inference_pipeline.py ${{ github.event.inputs.city || 'paris' }}
+        
+    - name: 📊 Predictions summary
+      run: |
+        echo "## 🔮 Predictions Generated" >> $GITHUB_STEP_SUMMARY
+        echo "City: ${{ github.event.inputs.city || 'paris' }}" >> $GITHUB_STEP_SUMMARY
+        echo "Date: $(date)" >> $GITHUB_STEP_SUMMARY
