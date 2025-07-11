@@ -24,7 +24,7 @@ from datetime import datetime, timedelta
 import warnings
 import sys
 import argparse
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Any
 from dotenv import load_dotenv
 
 # Chargement des variables d'environnement
@@ -38,9 +38,11 @@ try:
     import hopsworks
     from hsfs.feature_store import FeatureStore
     HOPSWORKS_AVAILABLE = True
+    FeatureStoreType = FeatureStore
 except ImportError:
     print("⚠️ Hopsworks non disponible - mode local activé")
     HOPSWORKS_AVAILABLE = False
+    FeatureStoreType = Any  # Use Any as fallback type
 
 class AQIFeaturePipeline:
     """
@@ -416,7 +418,7 @@ class AQIFeaturePipeline:
     # SAUVEGARDE DONNÉES
     # ===============================
     
-    def connect_to_hopsworks(self) -> Optional[FeatureStore]:
+    def connect_to_hopsworks(self) -> Optional[Any]:
         """Se connecte à Hopsworks et retourne le feature store"""
         if not HOPSWORKS_AVAILABLE:
             print("⚠️ Hopsworks non disponible - mode local")
@@ -434,7 +436,7 @@ class AQIFeaturePipeline:
             print("🔄 Basculement en mode local")
             return None
     
-    def save_to_feature_store(self, df: pd.DataFrame, fs: Optional[FeatureStore]):
+    def save_to_feature_store(self, df: pd.DataFrame, fs: Optional[Any]):
         """Sauvegarde les features dans le feature store ou localement"""
         if fs is None:
             # Sauvegarde locale
@@ -473,7 +475,7 @@ class AQIFeaturePipeline:
     # VALIDATION ET QUALITÉ
     # ===============================
     
-    def validate_data_quality(self, df: pd.DataFrame) -> Tuple[bool, List[str]]:
+    def validate_data_quality(self, df: pd.DataFrame) -> Tuple[bool, list]:
         """Valide la qualité des données"""
         issues = []
         
