@@ -2,7 +2,7 @@ name: 🤖 ML Pipeline
 
 on:
   schedule:
-    - cron: '0 6 * * *'  # Tous les jours à 6h
+    - cron: '0 8 * * *'  # 8h au lieu de 6h (plus sympa)
   workflow_dispatch:      # Manuel trigger
     inputs:
       city:
@@ -18,12 +18,14 @@ jobs:
   feature-pipeline:
     name: 📊 Feature Collection
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-python@v4
       with:
         python-version: '3.9'
+        cache: 'pip'
         
     - name: 📦 Install dependencies
       run: |
@@ -32,20 +34,25 @@ jobs:
     - name: 🌍 Collect features
       env:
         AQICN_API_KEY: ${{ secrets.AQICN_API_KEY }}
+        HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
       run: |
-        python pipelines/feature_pipeline.py --city ${{ github.event.inputs.city || 'paris' }}
+        python feature_pipeline.py --city ${{ github.event.inputs.city || 'paris' }}
         
     - name: 📁 Upload features
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4  # 🔥 VERSION CORRIGÉE
+      if: always()
       with:
         name: features-data
-        path: features_*.csv
+        path: |
+          features_*.csv
+          *.log
         retention-days: 7
 
   training:
     name: 🎓 Model Training
     needs: feature-pipeline
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     if: github.event_name == 'schedule' || github.event.inputs.days
     
     steps:
@@ -53,18 +60,23 @@ jobs:
     - uses: actions/setup-python@v4
       with:
         python-version: '3.9'
+        cache: 'pip'
         
     - name: 📦 Install dependencies
       run: pip install -r requirements.txt
       
     - name: 📥 Download features
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4  # 🔥 VERSION CORRIGÉE
       with:
         name: features-data
+        path: ./data
+      continue-on-error: true
         
     - name: 🤖 Train models
       run: |
-        python pipelines/training_pipeline.py --model-type auto
+        python training_pipeline.py --model-type auto
+      env:
+        HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
         
     - name: 📊 Generate report
       run: |
@@ -73,17 +85,20 @@ jobs:
         echo "Status: ✅ Completed" >> $GITHUB_STEP_SUMMARY
         
     - name: 📁 Save model
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4  # 🔥 VERSION CORRIGÉE
+      if: always()
       with:
         name: trained-model
         path: |
           aqi_model/
           training_report.md
+        retention-days: 30
 
   inference:
     name: 🔮 Generate Predictions
     needs: [feature-pipeline, training]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     if: always() && needs.feature-pipeline.result == 'success'
     
     steps:
@@ -91,16 +106,28 @@ jobs:
     - uses: actions/setup-python@v4
       with:
         python-version: '3.9'
+        cache: 'pip'
         
     - name: 📦 Install dependencies
       run: pip install -r requirements.txt
       
+    - name: 📥 Download model (optional)
+      uses: actions/download-artifact@v4  # 🔥 VERSION CORRIGÉE
+      with:
+        name: trained-model
+        path: ./
+      continue-on-error: true
+      
     - name: 🔮 Generate predictions
       run: |
-        python pipelines/inference_pipeline.py ${{ github.event.inputs.city || 'paris' }}
+        python inference_pipeline.py ${{ github.event.inputs.city || 'paris' }}
+      env:
+        AQICN_API_KEY: ${{ secrets.AQICN_API_KEY }}
+        HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
         
     - name: 📊 Predictions summary
       run: |
         echo "## 🔮 Predictions Generated" >> $GITHUB_STEP_SUMMARY
         echo "City: ${{ github.event.inputs.city || 'paris' }}" >> $GITHUB_STEP_SUMMARY
         echo "Date: $(date)" >> $GITHUB_STEP_SUMMARY
+        echo "Status: ✅ No more 5am wake up calls!" >> $GITHUB_STEP_SUMMARY
