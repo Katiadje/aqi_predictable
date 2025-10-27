@@ -224,27 +224,25 @@ class APIHelper:
     def fetch_city_aqi(city: str, api_key: str = None) -> Optional[Dict]:
         """Récupère les données AQI pour une ville donnée"""
         try:
-            api_key = api_key or 'demo'
-            url = f"https://api.aqicn.org/feed/{city}/?token={api_key}"
+            api_key = api_key or os.getenv('AQICN_API_KEY', 'demo')
             
-            response = requests.get(url, timeout=5)
+            # Si mode demo, utiliser fallback direct
+            if api_key == 'demo':
+                return APIHelper._generate_fallback_data(city)
+            
+            url = f"https://api.aqicn.org/feed/{city}/?token={api_key}"
+            response = requests.get(url, timeout=10)
             response.raise_for_status()
             
             data = response.json()
             if data.get('status') == 'ok':
                 return data['data']
             else:
-                st.error(f"Erreur API: {data.get('msg', 'Erreur inconnue')}")
+                # En cas d'erreur API, fallback silencieux
                 return APIHelper._generate_fallback_data(city)
                 
-        except requests.exceptions.Timeout:
-            st.error("Timeout lors de la requête API")
-            return APIHelper._generate_fallback_data(city)
-        except requests.exceptions.RequestException as e:
-            st.error(f"Erreur réseau: {str(e)}")
-            return APIHelper._generate_fallback_data(city)
-        except Exception as e:
-            st.error(f"Erreur inattendue: {str(e)}")
+        except:
+            # En cas d'erreur réseau, fallback silencieux
             return APIHelper._generate_fallback_data(city)
     
     @staticmethod

@@ -6,8 +6,41 @@ import os
 import sys
 import time
 from dotenv import load_dotenv
+import requests
 load_dotenv()
+AQICN_API_KEY = os.getenv('AQICN_API_KEY', 'demo')
 
+def get_live_data(city="paris"):
+    """Récupère les données AQI + météo en temps réel"""
+    aqicn_key = os.getenv("AQICN_API_KEY")
+    weather_key = os.getenv("OPENWEATHER_API_KEY")
+
+    data = {}
+
+    # --- AQI (WAQI) ---
+    try:
+        aqi_url = f"https://api.waqi.info/feed/{city}/?token={aqicn_key}"
+        resp = requests.get(aqi_url, timeout=10).json()
+        aqi_data = resp["data"]
+        data["aqi"] = aqi_data.get("aqi", None)
+        iaqi = aqi_data.get("iaqi", {})
+        data["pm25"] = iaqi.get("pm25", {}).get("v", 0)
+        data["pm10"] = iaqi.get("pm10", {}).get("v", 0)
+    except Exception as e:
+        print(f"❌ Erreur AQICN: {e}")
+
+    # --- Météo (OpenWeather) ---
+    try:
+        weather_url = f"https://api.openweathermap.org/data/2.5/weather?q={city}&units=metric&appid={weather_key}"
+        w_resp = requests.get(weather_url, timeout=10).json()
+        data["temp"] = w_resp["main"]["temp"]
+        data["humidity"] = w_resp["main"]["humidity"]
+        data["wind"] = w_resp["wind"]["speed"]
+        data["desc"] = w_resp["weather"][0]["description"].capitalize()
+    except Exception as e:
+        print(f"🌧️ Erreur météo: {e}")
+
+    return data
 
 # Ajout du chemin pour les imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -75,12 +108,39 @@ class AQIStreamlitApp:
     def create_header(self):
         """Crée l'en-tête de l'application"""
         st.markdown("""
-        <div class="main-header">
-            <h1>🌍 AQI Predictor</h1>
-            <p>Prédiction de la qualité de l'air en temps réel avec IA</p>
+        <style>
+            .header-container {
+                background: linear-gradient(90deg, #00416A 0%, #E4E5E6 100%);
+                padding: 2.5rem;
+                border-radius: 18px;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+                margin-bottom: 2.5rem;
+                color: white;
+                position: relative;
+            }
+            .header-container h1 {
+                font-size: 2.3rem;
+                font-weight: 700;
+                margin-bottom: 0.3rem;
+            }
+            .header-container p {
+                font-size: 1.1rem;
+                opacity: 0.9;
+            }
+            .header-logo {
+                position: absolute;
+                top: 1.2rem;
+                right: 2rem;
+                font-size: 2.5rem;
+            }
+        </style>
+        <div class="header-container">
+            <div class="header-logo">🌍</div>
+            <h1>AQI Predictor Dashboard</h1>
+            <p>Prédiction de la qualité de l'air en temps réel avec Intelligence Artificielle</p>
         </div>
         """, unsafe_allow_html=True)
-    
+        
     def create_sidebar(self):
         """Crée la barre latérale avec les contrôles"""
         with st.sidebar:
@@ -197,59 +257,74 @@ class AQIStreamlitApp:
             st.error(f"Erreur lors du chargement des prédictions: {e}")
             return []
     
+    
     def display_current_status(self, current_data: dict, city: str):
         """Affiche le statut AQI actuel"""
         st.subheader(f"📊 Statut Actuel - {city.capitalize()}")
-        
-        if not current_data:
-            st.error("❌ Impossible de récupérer les données actuelles")
+
+        # Récupération live (AQI + Météo)
+        live = get_live_data(city)
+
+        if not live or not live.get("aqi"):
+            st.error("❌ Impossible de récupérer les données temps réel.")
             return
-        
-        # Extraction des données principales
-        current_aqi = current_data.get('aqi', 0)
-        iaqi = current_data.get('iaqi', {})
-        
-        # Affichage des métriques principales
+
+        aqi = live["aqi"]
+        # Bande colorée dynamique selon l'AQI
+        color = AQIUtils.get_aqi_color(aqi)
+        category = AQIUtils.get_aqi_category(aqi)
+        st.markdown(f"""
+            <div style="
+                background:{color}22;
+                border-left:8px solid {color};
+                padding:1rem 1.5rem;
+                border-radius:12px;
+                margin-bottom:1.5rem;
+            ">
+            <h3 style="color:{color};margin:0;">Qualité de l'air : {category}</h3>
+            <p style="color:#333;margin-top:0.3rem;">Indice AQI actuel : <strong>{aqi}</strong></p>
+            </div>
+        """, unsafe_allow_html=True)
+
+        pm25 = live["pm25"]
+        pm10 = live["pm10"]
+        temp = live["temp"]
+        humidity = live["humidity"]
+        wind = live["wind"]
+        desc = live["desc"]
+
         col1, col2, col3, col4 = st.columns(4)
-        
         with col1:
-            DashboardComponents.aqi_metric_card(current_aqi, "AQI Actuel")
-        
+            DashboardComponents.aqi_metric_card(aqi, "AQI Actuel")
         with col2:
-            pm25 = iaqi.get('pm25', {}).get('v', 0)
-            st.metric("PM2.5", f"{pm25:.1f} μg/m³")
-        
+            st.metric("PM2.5", f"{pm25} μg/m³")
         with col3:
-            pm10 = iaqi.get('pm10', {}).get('v', 0)
-            st.metric("PM10", f"{pm10:.1f} μg/m³")
-        
+            st.metric("PM10", f"{pm10} μg/m³")
         with col4:
-            temp = iaqi.get('t', {}).get('v', 'N/A')
-            st.metric("Température", f"{temp}°C" if isinstance(temp, (int, float)) else "N/A")
-        
+            st.metric("🌡️ Température", f"{temp:.1f} °C")
+
+        # Section météo complémentaire
+        st.markdown(f"""
+        **Conditions météo actuelles à {city.capitalize()}**
+        - 💧 Humidité : {humidity}%
+        - 💨 Vent : {wind} km/h
+        - ☁️ Ciel : {desc}
+        """)
+
         # Gauge AQI
         col1, col2 = st.columns([2, 1])
-        
         with col1:
-            gauge_fig = AQIPlotter.create_aqi_gauge(current_aqi)
+            gauge_fig = AQIPlotter.create_aqi_gauge(aqi)
             st.plotly_chart(gauge_fig, use_container_width=True)
-        
         with col2:
-            # Informations de santé
-            health_info = AQIUtils.get_health_info(current_aqi)
+            health_info = AQIUtils.get_health_info(aqi)
             st.markdown(f"""
             ### {health_info['icon']} Recommandations
             **{health_info['message']}**
-            
+
             {health_info['advice']}
             """)
-            
-            # Timestamp de mise à jour
-            update_time = current_data.get('time', {}).get('s', 'Inconnue')
-            if current_data.get('_source') == 'fallback_simulation':
-                st.caption("🎲 Données simulées (API indisponible)")
-            else:
-                st.caption(f"Dernière mesure: {update_time}")
+
     
     def display_predictions(self, predictions: list, city: str):
         """Affiche les prédictions AQI"""
@@ -445,7 +520,6 @@ class AQIStreamlitApp:
         
         # Barre latérale et configuration
         config = self.create_sidebar()
-        
         selected_city = config['selected_city']
         
         # Chargement des données
@@ -460,7 +534,6 @@ class AQIStreamlitApp:
         try:
             # Statut actuel
             self.display_current_status(current_data, selected_city)
-            
             st.divider()
             
             # Prédictions
@@ -486,35 +559,55 @@ class AQIStreamlitApp:
             st.error(f"Erreur lors de l'affichage: {str(e)}")
             st.exception(e)
         
-        # Footer
-        st.markdown("---")
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.caption("🔗 **Source:** [AQICN.org](https://aqicn.org)")
-        
-        with col2:
-            st.caption("🤖 **Modèle:** Machine Learning avancé")
-        
-        with col3:
-            st.caption("⚡ **Mise à jour:** Temps réel")
+        # Footer stylé
+        self.display_footer()
+
+    def display_footer(self):
+        """Affiche un pied de page parfaitement centré et harmonisé"""
+        year = datetime.now().year
+        st.markdown(f"""
+        <style>
+            .footer-container {{
+                background: linear-gradient(90deg, #00416A 0%, #E4E5E6 100%);
+                color: white;
+                text-align: center;
+                padding: 1.3rem 0;
+                border-radius: 18px;
+                box-shadow: 0 -4px 20px rgba(0,0,0,0.1);
+                margin-top: 3rem;
+                font-size: 0.95rem;
+                font-weight: 400;
+                letter-spacing: 0.3px;
+                width: 100%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                animation: fadeIn 0.8s ease-in-out;
+            }}
+            @keyframes fadeIn {{
+                from {{ opacity: 0; transform: translateY(10px); }}
+                to {{ opacity: 1; transform: translateY(0); }}
+            }}
+            .footer-container span {{
+                font-weight: 500;
+                font-size: 1rem;
+            }}
+        </style>
+        <div class="footer-container">
+            <span>© {year} 🌍 <b>AQI Predictor</b> — Tous droits réservés</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+
 
 # Point d'entrée de l'application
 if __name__ == "__main__":
     # Vérification des variables d'environnement
-    if not os.getenv('AQICN_API_KEY'):
-        st.warning("""
-        ⚠️ **Configuration requise**: 
-        
-        Pour utiliser l'application avec des données réelles, 
-        configurez votre clé API AQICN dans les variables d'environnement:
-        
-        ```bash
-        export AQICN_API_KEY=your_api_key_here
-        ```
-        
-        En attendant, l'application fonctionne avec des données simulées.
-        """)
+# Statut de connexion
+    if AQICN_API_KEY != 'demo':
+        st.success("✅ API AQICN connectée - Données en temps réel")
+    else:
+        st.info("ℹ️ Mode simulation")
     
     # Lancement de l'application
     app = AQIStreamlitApp()
@@ -524,3 +617,5 @@ if __name__ == "__main__":
     if st.session_state.get('auto_refresh', False):
         time.sleep(300)  # 5 minutes
         st.rerun()
+
+

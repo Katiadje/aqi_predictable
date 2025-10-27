@@ -65,7 +65,7 @@ class AQIFeaturePipeline:
         """
         self.api_key = api_key
         self.city = city.lower()
-        self.base_url = "https://api.aqicn.org/feed"
+        self.base_url = "https://api.waqi.info/feed"
         
         # Statistiques de session
         self.stats = {
@@ -120,6 +120,29 @@ class AQIFeaturePipeline:
             self.stats['errors'] += 1
             return None
 
+
+    def fetch_weather_data(self, city: str) -> dict:
+        """Récupère les données météo depuis OpenWeatherMap"""
+        api_key = os.getenv("OPENWEATHER_API_KEY")
+        if not api_key:
+            print("⚠️ Clé OpenWeather absente - valeurs par défaut")
+            return {}
+        
+        url = f"https://api.openweathermap.org/data/2.5/weather?q={city}&units=metric&appid={api_key}"
+        try:
+            resp = requests.get(url, timeout=10)
+            data = resp.json()
+            return {
+                "temp_real": data["main"]["temp"],
+                "humidity_real": data["main"]["humidity"],
+                "pressure_real": data["main"]["pressure"],
+                "wind_speed_real": data["wind"]["speed"],
+                "weather_desc": data["weather"][0]["description"]
+            }
+        except Exception as e:
+            print(f"🌧️ Erreur OpenWeather: {e}")
+            return {}
+
     # ===============================
     # TRAITEMENT ET FEATURE ENGINEERING
     # ===============================
@@ -168,6 +191,12 @@ class AQIFeaturePipeline:
         
         # Combinaison de toutes les features
         all_features = {**base_features, **temporal_features, **derived_features}
+
+        # 🌦️ Ajout des données météo OpenWeatherMap (si disponibles)
+        weather = self.fetch_weather_data(self.city)
+        if weather:
+            all_features.update(weather)
+            print(f"🌡️ Données OpenWeather ajoutées: {weather.get('temp_real', 'N/A')}°C, {weather.get('weather_desc', '').capitalize()}")
         
         # Nettoyage et validation
         all_features = self._clean_features(all_features)
@@ -179,7 +208,8 @@ class AQIFeaturePipeline:
         self._print_feature_summary(all_features)
         
         return df
-    
+
+
     def _extract_pollutant_value(self, iaqi: Dict, pollutant: str, default: float = 0.0) -> float:
         """Extrait la valeur d'un polluant de manière sécurisée"""
         try:
