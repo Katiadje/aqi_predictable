@@ -15,24 +15,19 @@ joblib>=1.3.0
 
 # --- Data Visualization ---
 plotly>=5.15.0
-matplotlib>=3.7.0
 
 # --- Data Processing ---
 python-dateutil>=2.8.0
 
-# --- HTTP and API ---
-urllib3>=1.26.0
-
 # --- Environment Management ---
 python-dotenv>=1.0.0
 
-# --- MLOps / Feature Store ---
-hopsworks>=3.0.0    # 🔹 Connexion Hopsworks Feature Store
-
-# --- Development (optional) ---
-pytest>=7.4.0
-flake8>=6.0.0
-black>=23.7.0
-
 # --- Performance ---
 psutil>=5.9.0
+
+# ==========================================================
+# REMOVED FOR STREAMLIT CLOUD DEPLOYMENT:
+# - hopsworks>=3.0.0 (too heavy, causes build failures)
+# - matplotlib>=3.7.0 (not used in dashboard, plotly only)
+# - pytest, flake8, black (dev tools, not needed in production)
+# ==========================================================
