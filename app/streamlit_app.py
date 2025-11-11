@@ -12,33 +12,59 @@ AQICN_API_KEY = os.getenv('AQICN_API_KEY', 'demo')
 
 def get_live_data(city="paris"):
     """Récupère les données AQI + météo en temps réel"""
-    aqicn_key = os.getenv("AQICN_API_KEY")
+    aqicn_key = os.getenv("AQICN_API_KEY", "demo")
     weather_key = os.getenv("OPENWEATHER_API_KEY")
 
-    data = {}
+    data = {
+        "aqi": None,
+        "pm25": 0,
+        "pm10": 0,
+        "temp": 0,
+        "humidity": 0,
+        "wind": 0,
+        "desc": "N/A"
+    }
 
     # --- AQI (WAQI) ---
     try:
         aqi_url = f"https://api.waqi.info/feed/{city}/?token={aqicn_key}"
-        resp = requests.get(aqi_url, timeout=10).json()
-        aqi_data = resp["data"]
-        data["aqi"] = aqi_data.get("aqi", None)
-        iaqi = aqi_data.get("iaqi", {})
-        data["pm25"] = iaqi.get("pm25", {}).get("v", 0)
-        data["pm10"] = iaqi.get("pm10", {}).get("v", 0)
+        resp = requests.get(aqi_url, timeout=10)
+        resp.raise_for_status()  # Raise error si status != 200
+        resp_json = resp.json()
+        
+        if resp_json.get("status") == "ok":
+            aqi_data = resp_json["data"]
+            data["aqi"] = aqi_data.get("aqi")
+            iaqi = aqi_data.get("iaqi", {})
+            data["pm25"] = iaqi.get("pm25", {}).get("v", 0)
+            data["pm10"] = iaqi.get("pm10", {}).get("v", 0)
+        else:
+            print(f"❌ AQICN API error: {resp_json.get('data', 'Unknown error')}")
+            
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Erreur AQICN (réseau): {e}")
     except Exception as e:
-        print(f"❌ Erreur AQICN: {e}")
+        print(f"❌ Erreur AQICN (autre): {e}")
 
     # --- Météo (OpenWeather) ---
-    try:
-        weather_url = f"https://api.openweathermap.org/data/2.5/weather?q={city}&units=metric&appid={weather_key}"
-        w_resp = requests.get(weather_url, timeout=10).json()
-        data["temp"] = w_resp["main"]["temp"]
-        data["humidity"] = w_resp["main"]["humidity"]
-        data["wind"] = w_resp["wind"]["speed"]
-        data["desc"] = w_resp["weather"][0]["description"].capitalize()
-    except Exception as e:
-        print(f"🌧️ Erreur météo: {e}")
+    if weather_key:  # Seulement si la clé existe
+        try:
+            weather_url = f"https://api.openweathermap.org/data/2.5/weather?q={city}&units=metric&appid={weather_key}"
+            w_resp = requests.get(weather_url, timeout=10)
+            w_resp.raise_for_status()
+            w_json = w_resp.json()
+            
+            data["temp"] = w_json["main"]["temp"]
+            data["humidity"] = w_json["main"]["humidity"]
+            data["wind"] = w_json["wind"]["speed"]
+            data["desc"] = w_json["weather"][0]["description"].capitalize()
+            
+        except requests.exceptions.RequestException as e:
+            print(f"🌧️ Erreur météo (réseau): {e}")
+        except Exception as e:
+            print(f"🌧️ Erreur météo (autre): {e}")
+    else:
+        print("⚠️ Clé OpenWeather manquante, météo non disponible")
 
     return data
 
@@ -47,7 +73,14 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.utils.aqi_utils import AQIUtils, APIHelper, CacheManager, DataValidator
 from app.utils.plotting import AQIPlotter, DashboardComponents, MapVisualizations
-from pipelines.inference_pipeline import AQIInferencePipeline
+
+# Import conditionnel du pipeline (peut ne pas être disponible en prod)
+try:
+    from pipelines.inference_pipeline import AQIInferencePipeline
+    HAS_PIPELINE = True
+except ImportError:
+    HAS_PIPELINE = False
+    print("⚠️ Pipeline d'inférence non disponible")
 
 # Configuration de la page
 st.set_page_config(
@@ -91,7 +124,7 @@ class AQIStreamlitApp:
     """Application Streamlit principale pour la prédiction AQI"""
     
     def __init__(self):
-        self.inference_pipeline = AQIInferencePipeline()
+        self.inference_pipeline = None
         self.initialize_session_state()
     
     def initialize_session_state(self):
