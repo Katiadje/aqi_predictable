@@ -388,11 +388,10 @@ class AQIStreamlitApp:
                     <p><small>Plage: {pred['aqi_min']} - {pred['aqi_max']}</small></p>
                 </div>
                 """, unsafe_allow_html=True)
-        
+    
         # Prédictions horaires détaillées
-        if st.expander("⏰ Prédictions horaires détaillées"):
-            hourly_fig = AQIPlotter.create_hourly_forecast(predictions)
-            st.plotly_chart(hourly_fig, use_container_width=True)
+        hourly_fig = AQIPlotter.create_hourly_forecast(predictions)
+        st.plotly_chart(hourly_fig, use_container_width=True)
     
     def display_pollutant_details(self, current_data: dict):
         """Affiche les détails des polluants"""

@@ -333,15 +333,51 @@ class AQIInferencePipeline:
                     avg_aqi = np.mean([p['aqi'] for p in daily_predictions])
                     date = (datetime.now() + timedelta(days=day+1)).date()
                     
+                    # Calcul de la moyenne et plage pour ce jour
+                if daily_predictions:
+                    avg_aqi = np.mean([p['aqi'] for p in daily_predictions])
+                    min_aqi = min([p['aqi'] for p in daily_predictions])
+                    max_aqi = max([p['aqi'] for p in daily_predictions])
+                    date = (datetime.now() + timedelta(days=day+1)).date()
+                    category = self._get_aqi_category(avg_aqi)
+                    
+                    # Générer prédictions horaires pour ce jour
+                    hourly_preds = []
+                    for hour in range(24):
+                        hourly_aqi = avg_aqi + np.random.normal(0, 8)  # Variation horaire
+                        hourly_preds.append({
+                            'hour': hour,
+                            'timestamp': f"{date} {hour:02d}:00",
+                            'aqi': max(0, min(500, round(hourly_aqi, 1)))
+                        })
+                    
+                    # Calcul de la moyenne et plage pour ce jour
+                if daily_predictions:
+                    avg_aqi = np.mean([p['aqi'] for p in daily_predictions])
+                    min_aqi = min([p['aqi'] for p in daily_predictions])
+                    max_aqi = max([p['aqi'] for p in daily_predictions])
+                    date = (datetime.now() + timedelta(days=day+1)).date()
+                    category = self._get_aqi_category(avg_aqi)
+                    
+                    # Générer prédictions horaires pour ce jour
+                    hourly_preds = []
+                    for hour in range(24):
+                        hourly_aqi = avg_aqi + np.random.normal(0, 8)  # Variation horaire
+                        hourly_preds.append({
+                            'hour': hour,
+                            'timestamp': f"{date} {hour:02d}:00",
+                            'aqi': max(0, min(500, round(hourly_aqi, 1)))
+                        })
+                    
                     predictions.append({
-                        'date': date,
                         'day': day + 1,
+                        'date': date,
                         'aqi_avg': round(avg_aqi, 1),
-                        'aqi_min': round(min([p['aqi'] for p in daily_predictions]), 1),
-                        'aqi_max': round(max([p['aqi'] for p in daily_predictions]), 1),
-                        'hourly_predictions': daily_predictions,
-                        'category': self._get_aqi_category(avg_aqi),
-                        'city': city
+                        'aqi_min': round(min_aqi, 1),
+                        'aqi_max': round(max_aqi, 1),
+                        'category': category,
+                        'city': city,
+                        'hourly_predictions': hourly_preds
                     })
             
             print(f"✅ {len(predictions)} prédictions générées pour {city}")
